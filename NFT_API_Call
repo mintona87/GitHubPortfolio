@@ -1,0 +1,150 @@
+import requests
+import json
+
+#Api key and headers
+api_key = "REDACTED"
+url = "https://api.saturnnft.io/graphql/"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {api_key}"
+}
+
+# Function to get the project ids (which are required to fetch ntfs)
+def get_project_ids():
+    #Query to get the NFT project ids
+    operation = '''
+            query NFTProjects {
+              nFTProjects {
+                nodes {
+                  id
+                }
+              }
+            }
+    '''
+
+    body = {
+        "query": operation,
+    }
+    
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    data = response.json()
+    
+    #project ids
+    ids = data["data"]["nFTProjects"]["nodes"]
+
+    return ids
+
+def get_total_count(id):
+    operation = '''
+        query NFTs($input: GetNFTsInput!, $first: Int) {
+        nFTs(input: $input, first: $first) {
+            totalCount
+          }
+        }
+    '''
+    variables = {
+        "input": {
+          "nftProjectId": id
+        }
+      }
+    body = {
+        "query": operation,
+        "variables": variables
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    data = response.json()
+    return data["data"]["nFTs"]["totalCount"]
+
+#Function to get the nft ids with metadata
+def get_nft_ids_with_metadata(project_ids):
+    if len(project_ids) == 0: 
+        print("No project ids found.")
+        return {}
+    #For every project that a user has
+    print("\n### Finding ntf with $handle = $pfppb ###")
+    for idRef in project_ids:
+        
+        #This is the project id which we must pass to the nFTs query (We don't need to worry about it, cause we already have it)
+        id = idRef["id"]
+        totalCount = get_total_count(id)
+        
+        #Query to get the nfts
+        operation = '''
+            query($input: GetNFTsInput!, $first: Int) {
+              nFTs(input: $input, first: $first) {
+                nodes {
+                  id
+                  nft_data {
+                      json_properties
+                  }
+                }
+              }
+            }
+        '''
+        
+        #Passing the project id
+        variables = {
+          "input": {
+            "nftProjectId": id
+          },
+          "first": totalCount
+        }
+        
+        body = {
+            "query": operation,
+            "variables": variables
+        }
+        
+        response = requests.post(url, headers=headers, data=json.dumps(body))
+        data = response.json()
+        
+        idsRef = data["data"]["nFTs"]["nodes"]
+        filtered = [ref["id"] for ref in idsRef if ref["nft_data"]['json_properties'] is not None and '"$handle": "$pfppb"' in ref["nft_data"]["json_properties"]]
+        print("\n### Found " + str(len(filtered)) + " records with $handle = $pfppb: " + str(filtered) + " ###\n")
+        return filtered        
+        
+        
+#Update the xp of nfts found using metadata
+def update_xp(nft_ids, xp):
+    if len(nft_ids) == 0:
+        print("Sorry, no ntf ids found with the project id provided.")
+        return
+    for id in nft_ids:
+        print("### Updating nft with id: " + id + " ###")
+        operation = '''
+            mutation UpdateNFTDataProgress($input: UpdateNFTDataProgressInput!) {
+              updateNFTDataProgress(input: $input) {
+                nft {
+                  nft_data {
+                      id
+                      name
+                      json_properties
+                      xp
+                  }
+                }
+              }
+            }
+        '''
+        variables = {
+            "input": {
+                "nftId": id,
+                "xp": 33
+          }
+        }
+        
+        body = {
+            "query": operation,
+            "variables": variables
+        }
+        response = requests.post(url, headers=headers, data=json.dumps(body))
+        data = response.json()
+        print("\n### Updated: " + str(data) + " ###\n")
+        return data
+
+
+#Get the project ids
+project_ids = get_project_ids()
+#Get the nft ids
+nft_ids = get_nft_ids_with_metadata(project_ids)
+#Update the nfts
+updated_nfts = update_xp(nft_ids, 30)
